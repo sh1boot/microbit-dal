@@ -23,40 +23,34 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef MICROBIT_QDEC_H
-#define MICROBIT_QDEC_H
+#ifndef MICROBIT_QUADRATUREDECODER_H
+#define MICROBIT_QUADRATUREDECODER_H
 
 #include "mbed.h"
 #include "MicroBitConfig.h"
 #include "MicroBitComponent.h"
 #include "MicroBitPin.h"
 
-struct QDecExtraConfig
-{
-    uint32_t samplePeriod = 128;
-    uint8_t LEDDelay = 0;
-    bool activeHighLED = true;
-    bool useDebounce = false;
-};
+                                                        // Status Field flags...
+#define QDEC_STATUS_USING_SYSTEM_TICK       0x02        // systemTick() is responsible for regular polling
+#define QDEC_STATUS_USING_DEBOUNCE          0x04        // Inputs will be debounced
+#define QDEC_STATUS_LED_ACTIVE_LOW          0x08        // Drive LED pin low to activate
 
 /**
   * Class definition for MicroBit Quadrature decoder.
   *
   */
-class MicroBitQDec : public MicroBitComponent
+class MicroBitQuadratureDecoder : public MicroBitComponent
 {
     protected:
     static MicroBitPin pinNC;           // A no-connect pin -- the default for unused LED arguments.
+    int64_t         position = 0;       // Absolute position
     MicroBitPin&    phaseA,             // Phase A input for decoding
                     phaseB,             // Phase B input for decoding
                     LED;                // LED output to assert while decoding
-    uint32_t        samplePeriod;       // Minimum sampling period allowed
-    int64_t         position;           // Absolute position
-    uint32_t        errors;             // Double-transition counter
-    uint8_t         LEDDelay;           // power-up time for LED, in microseconds
-    bool            activeHighLED = true;
-    bool            useSystemTick = false;
-    bool            useDebounce = false;
+    uint32_t        samplePeriod = 128; // Minimum sampling period allowed
+    uint16_t        errors = 0;         // Double-transition counter
+    uint8_t         LEDDelay = 0;       // power-up time for LED, in microseconds
 
     public:
 
@@ -67,16 +61,18 @@ class MicroBitQDec : public MicroBitComponent
       * @param phaseA             Pin connected to quadrature encoder output A
       * @param phaseB             Pin connected to quadrature encoder output B
       * @param LED                The pin for the LED to enable during each quadrature reading
-      * @param cfg->samplePeriod  Number of microseconds between samples
-      * @param cfg->LEDDelay      Number of microseconds after LED activation before sampling
-      * @param cfg->activeHighLED Whether LED is activated on high output (true), or low (false)
-      * @param cfg->useDebounce   Use hardware debounce on quadrature inputs
+      * @param LEDDelay           Number of microseconds after LED activation before sampling
+      * @param flags              Combination of the following flags:
+      *            QDEC_STATUS_LED_ACTIVE_LOW  Whether LED is activated on high output (true), or low (false)
+      *            QDEC_STATUS_USING_SYSTEM_TICK  Use the systemTick() function to call poll() regularly
+      *            QDEC_STATUS_USING_DEBOUNCE   Use hardware debounce on quadrature inputs
       *
       * @code
-      * MicroBitQDec qdec(QDEC_ID, QDEC_PHA, QDEC_PHB, QDEC_LED);
+      * MicroBitQuadratureDecoder qdec(QDEC_ID, QDEC_PHA, QDEC_PHB, QDEC_LED);
       * @endcode
       */
-    MicroBitQDec(MicroBitPin& phaseA, MicroBitPin& phaseB, MicroBitPin& LED = pinNC, QDecExtraConfig const* cfg = NULL);
+    MicroBitQuadratureDecoder(MicroBitPin& phaseA, MicroBitPin& phaseB, MicroBitPin& LED, uint8_t LEDDelay = 0, uint8_t flags = 0);
+    MicroBitQuadratureDecoder(MicroBitPin& phaseA, MicroBitPin& phaseB, uint8_t flags = 0);
 
     /**
       * Automatically call poll() from the systemTick() event.
@@ -94,6 +90,18 @@ class MicroBitQDec : public MicroBitComponent
       * Do not automatically call poll() from the systemTick() event (this is the default).
       */
     void disableSystemTick(void);
+
+    /**
+      * Set the maximum time between samples of the I/O pins in microseconds.
+      *
+      * @return MICROBIT_OK on success, or MICROBIT_INVALID_PARAMETER if the configuration is invalid.
+      */
+    int setSamplePeriodUs(uint32_t period);
+
+    /**
+      * @return the sampling period in microseconds.
+      */
+    uint32_t getSamplePeriod(void);
 
     /**
       * Configure the hardware to keep this instance up to date.
@@ -154,11 +162,11 @@ class MicroBitQDec : public MicroBitComponent
     int64_t getErrors(void) { return errors; }
 
     /**
-      * Destructor for MicroBitQDec.
+      * Destructor for MicroBitQuadratureDecoder.
       *
-      * Makes the necessary call to system_timer_remove_component() if somebody forgot.
+      * Ensures that stop() gets called if necessary.
       */
-    virtual ~MicroBitQDec() override;
+    virtual ~MicroBitQuadratureDecoder() override;
 
     virtual void systemTick(void) override;
 };

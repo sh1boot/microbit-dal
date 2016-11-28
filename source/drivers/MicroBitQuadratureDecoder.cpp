@@ -23,13 +23,15 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
+#include "mbed.h"
 #include "MicroBitConfig.h"
-#include "MicroBitQDec.h"
-#include "ErrorNo.h"
+#include "MicroBitCompat.h"
 #include "MicroBitEvent.h"
 #include "MicroBitSystemTimer.h"
+#include "ErrorNo.h"
+#include "MicroBitQuadratureDecoder.h"
 
-MicroBitPin MicroBitQDec::pinNC(0, NC, PIN_CAPABILITY_DIGITAL);
+MicroBitPin MicroBitQuadratureDecoder::pinNC(0, NC, PIN_CAPABILITY_DIGITAL);
 
 /**
   * Constructor.
@@ -38,25 +40,26 @@ MicroBitPin MicroBitQDec::pinNC(0, NC, PIN_CAPABILITY_DIGITAL);
   * @param phaseA             Pin connected to quadrature encoder output A
   * @param phaseB             Pin connected to quadrature encoder output B
   * @param LED                The pin for the LED to enable during each quadrature reading
-  * @param cfg->samplePeriod  Number of microseconds between samples
-  * @param cfg->LEDDelay      Number of microseconds after LED activation before sampling
-  * @param cfg->activeHighLED Whether LED is activated on high output (true), or low (false)
-  * @param cfg->useDebounce   Use hardware debounce on quadrature inputs
+  * @param LEDDelay           Number of microseconds after LED activation before sampling
+  * @param flags              Combination of the following flags:
+  *            QDEC_STATUS_LED_ACTIVE_LOW  Whether LED is activated on high output (true), or low (false)
+  *            QDEC_STATUS_USING_SYSTEM_TICK  Use the systemTick() function to call poll() regularly
+  *            QDEC_STATUS_USING_DEBOUNCE   Use hardware debounce on quadrature inputs
   *
   * @code
-  * MicroBitQDec qdec(QDEC_ID, QDEC_PHA, QDEC_PHB, QDEC_LED);
+  * MicroBitQuadratureDecoder qdec(QDEC_ID, QDEC_PHA, QDEC_PHB, QDEC_LED);
   * @endcode
   */
-MicroBitQDec::MicroBitQDec(MicroBitPin& phaseA_, MicroBitPin& phaseB_, MicroBitPin& LED_, QDecExtraConfig const* cfg)
-    : phaseA(phaseA_), phaseB(phaseB_), LED(LED_)
+MicroBitQuadratureDecoder::MicroBitQuadratureDecoder(MicroBitPin& phaseA_, MicroBitPin& phaseB_, MicroBitPin& LED_, uint8_t LEDDelay_, uint8_t flags)
+    : phaseA(phaseA_), phaseB(phaseB_), LED(LED_), LEDDelay(LEDDelay_)
 {
-    static const QDecExtraConfig defaults;
-    if (cfg == NULL) cfg = &defaults;
-    samplePeriod = cfg->samplePeriod;
-    activeHighLED = cfg->activeHighLED;
-    useDebounce = cfg->useDebounce;
-    LEDDelay = cfg->LEDDelay;
-    position = 0;
+    status = (flags & ~MICROBIT_COMPONENT_RUNNING);
+}
+
+MicroBitQuadratureDecoder::MicroBitQuadratureDecoder(MicroBitPin& phaseA_, MicroBitPin& phaseB_, uint8_t flags)
+    : phaseA(phaseA_), phaseB(phaseB_), LED(pinNC)
+{
+    status = (flags & ~MICROBIT_COMPONENT_RUNNING & ~QDEC_STATUS_LED_ACTIVE_LOW);
 }
 
 /**
@@ -69,11 +72,11 @@ MicroBitQDec::MicroBitQDec(MicroBitPin& phaseA_, MicroBitPin& phaseB_, MicroBitP
   * This should not be used if poll() is being called in response to
   * another regular event.
   */
-void MicroBitQDec::enableSystemTick(void)
+void MicroBitQuadratureDecoder::enableSystemTick(void)
 {
-    if (!useSystemTick)
+    if (!(status & QDEC_STATUS_USING_SYSTEM_TICK))
     {
-        useSystemTick = true;
+        status |= QDEC_STATUS_USING_SYSTEM_TICK;
         if ((status & MICROBIT_COMPONENT_RUNNING) != 0)
             system_timer_add_component(this);
     }
@@ -82,11 +85,32 @@ void MicroBitQDec::enableSystemTick(void)
 /**
   * Do not automatically call poll() from the systemTick() event.
   */
-void MicroBitQDec::disableSystemTick(void)
+void MicroBitQuadratureDecoder::disableSystemTick(void)
 {
-    useSystemTick = false;
+    status &= ~QDEC_STATUS_USING_SYSTEM_TICK;
     if ((status & MICROBIT_COMPONENT_RUNNING) != 0)
         system_timer_remove_component(this);
+}
+
+/**
+  * Set the maximum time between samples of the I/O pins in microseconds.
+  *
+  * @return MICROBIT_OK on success, or MICROBIT_INVALID_PARAMETER if the configuration is invalid.
+  */
+int MicroBitQuadratureDecoder::setSamplePeriodUs(uint32_t period)
+{
+    if (period < 128)
+        return MICROBIT_INVALID_PARAMETER;
+    samplePeriod = period;
+    return MICROBIT_OK;
+}
+
+/**
+  * @return the sampling period in microseconds.
+  */
+uint32_t MicroBitQuadratureDecoder::getSamplePeriod(void)
+{
+    return samplePeriod;
 }
 
 /**
@@ -99,7 +123,7 @@ void MicroBitQDec::disableSystemTick(void)
   *
   * @return MICROBIT_OK on success, MICROBIT_BUSY if the hardware is already attached to another instance, or MICROBIT_INVALID_PARAMETER if the configuration is invalid.
   */
-int MicroBitQDec::start(void)
+int MicroBitQuadratureDecoder::start(void)
 {
     int sampleper;
 
@@ -117,13 +141,13 @@ int MicroBitQDec::start(void)
 
     NRF_QDEC->SHORTS = 0;           // No shorts
     NRF_QDEC->INTENCLR = ~0;        // No interrupts
-    NRF_QDEC->LEDPOL = activeHighLED ? 1 : 0;
+    NRF_QDEC->LEDPOL = (status & QDEC_STATUS_LED_ACTIVE_LOW) != 0 ? 0 : 1;
     NRF_QDEC->SAMPLEPER = sampleper;
     NRF_QDEC->REPORTPER = 7;        // Slowest possible reporting (not used)
     NRF_QDEC->PSELLED = LED.name;
     NRF_QDEC->PSELA = phaseA.name;
     NRF_QDEC->PSELB = phaseB.name;
-    NRF_QDEC->DBFEN = useDebounce;
+    NRF_QDEC->DBFEN = (status & QDEC_STATUS_USING_DEBOUNCE) != 0 ? 1 : 0;
     NRF_QDEC->LEDPRE = LEDDelay;
 
     // If these pins were previously triggering events (eg., when emulating
@@ -141,27 +165,29 @@ int MicroBitQDec::start(void)
     NRF_QDEC->TASKS_READCLRACC = 1; // Clear accumulators
     NRF_QDEC->ENABLE = 1;
 
-    if (useSystemTick)
-        system_timer_remove_component(this);
-
     NRF_QDEC->TASKS_START = 1;
     status |= MICROBIT_COMPONENT_RUNNING;
+
+    if ((status & QDEC_STATUS_USING_SYSTEM_TICK) != 0)
+        system_timer_remove_component(this);
+
     return MICROBIT_OK;
 }
 
 /**
   * Stop the hardware and make it available for use by other instances.
   */
-void MicroBitQDec::stop(void)
+void MicroBitQuadratureDecoder::stop(void)
 {
+    if ((status & QDEC_STATUS_USING_SYSTEM_TICK) != 0)
+        system_timer_remove_component(this);
+
     if ((status & MICROBIT_COMPONENT_RUNNING) != 0)
     {
         NRF_QDEC->TASKS_STOP = 1;
         NRF_QDEC->ENABLE = 0;
         status &= ~MICROBIT_COMPONENT_RUNNING;
     }
-    if (useSystemTick)
-        system_timer_remove_component(this);
 }
 
 /** Poll hardware for latest decoder movement and reset the hardware counter to zero.
@@ -172,11 +198,11 @@ void MicroBitQDec::stop(void)
   *
   * This call may be made from systemTick(), or a dedicated motor control ticker interrupt.
   */
-void MicroBitQDec::poll(void)
+void MicroBitQuadratureDecoder::poll(void)
 {
     NRF_QDEC->TASKS_READCLRACC = 1;
     position += (int32_t)NRF_QDEC->ACCREAD;
-    errors += NRF_QDEC->ACCDBLREAD;
+    errors = min(UINT16_MAX, errors + NRF_QDEC->ACCDBLREAD);
 }
 
 /**
@@ -186,22 +212,22 @@ void MicroBitQDec::poll(void)
   *
   * @param value to add to position
   */
-void MicroBitQDec::resetPosition(int64_t position)
+void MicroBitQuadratureDecoder::resetPosition(int64_t position)
 {
     this->position = position;
 }
 
 /**
-  * Destructor for MicroBitQDec.
+  * Destructor for MicroBitQuadratureDecoder.
   *
-  * Makes the necessary call to system_timer_remove_component() if somebody forgot.
+  * Ensures that stop() gets called if necessary.
   */
-MicroBitQDec::~MicroBitQDec(void)
+MicroBitQuadratureDecoder::~MicroBitQuadratureDecoder(void)
 {
     stop();
 }
 
-void MicroBitQDec::systemTick(void)
+void MicroBitQuadratureDecoder::systemTick(void)
 {
     poll();
 }
