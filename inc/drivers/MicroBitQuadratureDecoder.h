@@ -31,10 +31,10 @@ DEALINGS IN THE SOFTWARE.
 #include "MicroBitComponent.h"
 #include "MicroBitPin.h"
 
-                                                        // Status Field flags...
-#define QDEC_STATUS_USING_SYSTEM_TICK       0x02        // systemTick() is responsible for regular polling
-#define QDEC_STATUS_USING_DEBOUNCE          0x04        // Inputs will be debounced
-#define QDEC_STATUS_LED_ACTIVE_LOW          0x08        // Drive LED pin low to activate
+                                                        // Configuration flags...
+#define QDEC_USING_SYSTEM_TICK              0x01        // Use systemTick() to keep position up to date.
+#define QDEC_USING_DEBOUNCE                 0x02        // Use input debounce feature.
+#define QDEC_LED_ACTIVE_LOW                 0x04        // Drive LED pin low to activate.
 
 /**
   * Class definition for MicroBit Quadrature decoder.
@@ -51,6 +51,7 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
     uint32_t        samplePeriod = 128; // Minimum sampling period allowed
     uint16_t        errors = 0;         // Double-transition counter
     uint8_t         LEDDelay = 0;       // power-up time for LED, in microseconds
+    uint8_t         flags;
 
     public:
 
@@ -62,10 +63,6 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
       * @param phaseB             Pin connected to quadrature encoder output B
       * @param LED                The pin for the LED to enable during each quadrature reading
       * @param LEDDelay           Number of microseconds after LED activation before sampling
-      * @param flags              Combination of the following flags:
-      *            QDEC_STATUS_LED_ACTIVE_LOW  Whether LED is activated on high output (true), or low (false)
-      *            QDEC_STATUS_USING_SYSTEM_TICK  Use the systemTick() function to call poll() regularly
-      *            QDEC_STATUS_USING_DEBOUNCE   Use hardware debounce on quadrature inputs
       *
       * @code
       * MicroBitQuadratureDecoder qdec(QDEC_ID, QDEC_PHA, QDEC_PHB, QDEC_LED);
@@ -84,24 +81,28 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
       * This should not be used if poll() is being called in response to
       * another regular event.
       */
-    void enableSystemTick(void);
+    void enableSystemTick();
 
     /**
       * Do not automatically call poll() from the systemTick() event (this is the default).
       */
-    void disableSystemTick(void);
+    void disableSystemTick();
 
     /**
-      * Set the maximum time between samples of the I/O pins in microseconds.
+      * Set the rate at which input pins are sampled.
+      *
+      * @param  The maximum interval between samples in microseconds.
       *
       * @return MICROBIT_OK on success, or MICROBIT_INVALID_PARAMETER if the configuration is invalid.
       */
     int setSamplePeriodUs(uint32_t period);
 
     /**
-      * @return the sampling period in microseconds.
+      * Returns the current sampling period.
+      *
+      * @return The sampling period in microseconds.
       */
-    uint32_t getSamplePeriod(void);
+    uint32_t getSamplePeriod();
 
     /**
       * Configure the hardware to keep this instance up to date.
@@ -115,12 +116,12 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
       *
       * @return MICROBIT_OK on success, MICROBIT_BUSY if the hardware is already attached to another instance, or MICROBIT_INVALID_PARAMETER if the configuration is invalid.
       */
-    virtual int start(void);
+    virtual int start();
 
     /**
       * Stop the hardware and make it available for use by other instances.
       */
-    virtual void stop(void);
+    virtual void stop();
 
     /** Poll hardware for latest decoder movement and reset the hardware counter to zero.
       *
@@ -130,21 +131,21 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
       *
       * This call may be made from systemTick(), or a dedicated motor control ticker interrupt.
       */
-    virtual void poll(void);
+    virtual void poll();
 
     /**
       * Read the absolute position of the encoder at last call to `poll()`.
       *
       * @return current decoder position.
       */
-    int64_t getPosition(void) { return position; }
+    int64_t getPosition() { return position; }
 
     /**
       * Reset the position to a known value.
       *
       * This can be used to zero the counter on detection of an index or end-stop signal.
       *
-      * @param value to add to position
+      * @param The value that getPosition() should return at this encoder position.
       */
     virtual void resetPosition(int64_t position = 0);
 
@@ -159,7 +160,7 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
       *
       * @return total number of errors.
       */
-    int64_t getErrors(void) { return errors; }
+    int64_t getCountErrors() { return errors; }
 
     /**
       * Destructor for MicroBitQuadratureDecoder.
@@ -168,7 +169,7 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
       */
     virtual ~MicroBitQuadratureDecoder() override;
 
-    virtual void systemTick(void) override;
+    virtual void systemTick() override;
 };
 
 #endif
