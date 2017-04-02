@@ -1,8 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2016 British Broadcasting Corporation.
-This software is provided by Lancaster University by arrangement with the BBC.
+Copyright (c) 2016-2017 Simon Hosie
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the "Software"),
@@ -49,7 +48,7 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
                     phaseB,             // Phase B input for decoding
                     LED;                // LED output to assert while decoding
     uint32_t        samplePeriod = 128; // Minimum sampling period allowed
-    uint16_t        errors = 0;         // Double-transition counter
+    uint16_t        faults = 0;         // Double-transition counter
     uint8_t         LEDDelay = 0;       // power-up time for LED, in microseconds
     uint8_t         flags;
 
@@ -156,11 +155,11 @@ class MicroBitQuadratureDecoder : public MicroBitComponent
       * double-transition condition, where the direction cannot be decoded
       * because the relative order of edge transitions was not witnessed.
       *
-      * Such errors imply that the sampling period is too long.
+      * Such faults imply that the sampling period is too long.
       *
-      * @return total number of errors.
+      * @return total number of faults.
       */
-    int64_t getCountErrors() { return errors; }
+    int64_t getCountFaults() { return faults; }
 
     /**
       * Destructor for MicroBitQuadratureDecoder.

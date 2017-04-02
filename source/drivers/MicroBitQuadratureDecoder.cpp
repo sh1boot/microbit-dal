@@ -1,8 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2016 British Broadcasting Corporation.
-This software is provided by Lancaster University by arrangement with the BBC.
+Copyright (c) 2016-2017 Simon Hosie
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the "Software"),
@@ -125,7 +124,7 @@ int MicroBitQuadratureDecoder::start()
 {
     int sampleper;
 
-    errors = 0;
+    faults = 0;
 
     for (sampleper = 7; sampleper >= 0; --sampleper)
     {
@@ -136,7 +135,7 @@ int MicroBitQuadratureDecoder::start()
             break;
     }
 
-    if (NRF_QDEC->ENABLE != 0 || (status & MICROBIT_COMPONENT_RUNNING) != 0)
+    if ((status & MICROBIT_COMPONENT_RUNNING) != 0)
         return MICROBIT_BUSY;
 
     NRF_QDEC->SHORTS = 0;           // No shorts
@@ -202,7 +201,7 @@ void MicroBitQuadratureDecoder::poll()
 {
     NRF_QDEC->TASKS_READCLRACC = 1;
     position += (int32_t)NRF_QDEC->ACCREAD;
-    errors = min(UINT16_MAX, errors + NRF_QDEC->ACCDBLREAD);
+    faults = min(UINT16_MAX, faults + NRF_QDEC->ACCDBLREAD);
 }
 
 /**
